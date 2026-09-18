@@ -1,0 +1,48 @@
+# Local end-to-end run of both components, wired the way Choreo wires them:
+# certificates arrive as read-only file mounts, everything else as env vars.
+#
+#   ./scripts/gen-certs.sh certs
+#   docker compose up --build
+#
+# The client exits 0 on success and non-zero on any mTLS failure -- try it with
+# CLIENT_CERT pointed at certs/rogue-client.crt to watch it fail.
+services:
+  server:
+    build: ./server
+    environment:
+      SERVICE_REGION: us-east-1          # required configuration
+      API_TOKEN: local-dev-token-123     # required secret
+      # LOG_LEVEL / WEBHOOK_KEY deliberately unset: optional, defaults apply.
+      SERVER_CERT: /etc/mtls/server.crt
+      SERVER_KEY: /etc/mtls/server.key
+      CLIENT_CA: /etc/mtls/client-ca.crt
+    volumes:
+      - ./certs/server.crt:/etc/mtls/server.crt:ro
+      - ./certs/server.key:/etc/mtls/server.key:ro
+      - ./certs/client-ca.crt:/etc/mtls/client-ca.crt:ro
+    ports:
+      - "8443:8443"   # mTLS (TCP passthrough, as on Choreo)
+      - "8080:8080"   # plain-HTTP health, probes only
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  client:
+    build: ./client
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      SERVER_HOST: server
+      SERVER_PORT: "8443"
+      # The demo server certificate is issued for mtls-demo-server, not for the
+      # compose service name, so verification is pointed at the SAN.
+      SERVER_NAME: mtls-demo-server
+      CLIENT_MODE: once
+      RETRY_ATTEMPTS: "5"
+    volumes:
+      - ./certs/client.crt:/etc/mtls/client.crt:ro
+      - ./certs/client.key:/etc/mtls/client.key:ro
+      - ./certs/server-ca.crt:/etc/mtls/server-ca.crt:ro

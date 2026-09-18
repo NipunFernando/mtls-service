@@ -1,0 +1,83 @@
+# Choreo component descriptor for the mTLS-enforcing service.
+#
+# The endpoint type is TCP on purpose.  A REST/HTTP endpoint would have Choreo's
+# gateway terminate TLS, and this container would receive plain HTTP with no
+# client certificate to inspect -- app-level mTLS would be impossible.  TCP is
+# a passthrough: the raw TLS connection reaches the container and main.py does
+# the handshake itself.
+schemaVersion: 1.2
+
+endpoints:
+  - name: mtls-info
+    displayName: mTLS Info Service
+    service:
+      # Must match MTLS_PORT in the container.
+      port: 8443
+    # Allowed values: REST, GraphQL, GRPC, TCP, UDP.  TCP == TLS passthrough.
+    type: TCP
+    # TCP endpoints are consumed inside the data plane; Project keeps this
+    # reachable from the companion client component only.  Use Organization if
+    # the client lives in a different project.
+    networkVisibilities:
+      - Project
+
+# Rendered as a form under Configs & Secrets in the console.
+# NOTE: the config form only supports structured file mounts (yaml/json/toml),
+# so the PEM certificate material is NOT declared here -- add SERVER_CERT,
+# SERVER_KEY (secret) and CLIENT_CA as file mounts under
+# DevOps -> Configs & Secrets, and point the env vars below at their paths.
+configurations:
+  env:
+    # --- the four demo values -----------------------------------------------
+    - name: SERVICE_REGION           # required configuration
+      valueFrom:
+        configForm:
+          displayName: Service Region
+          type: string
+          required: true
+    - name: API_TOKEN                # required secret
+      valueFrom:
+        configForm:
+          displayName: API Token
+          type: secret
+          required: true
+    - name: LOG_LEVEL                # optional configuration (defaults to "info")
+      valueFrom:
+        configForm:
+          displayName: Log Level
+          type: string
+          required: false
+    - name: WEBHOOK_KEY              # optional secret
+      valueFrom:
+        configForm:
+          displayName: Webhook Key
+          type: secret
+          required: false
+
+    # --- where the mounted TLS material lands --------------------------------
+    - name: SERVER_CERT
+      valueFrom:
+        configForm:
+          displayName: Server Certificate Mount Path
+          type: string
+          required: false
+    - name: SERVER_KEY
+      valueFrom:
+        configForm:
+          displayName: Server Private Key Mount Path
+          type: string
+          required: false
+    - name: CLIENT_CA
+      valueFrom:
+        configForm:
+          displayName: Client CA Mount Path
+          type: string
+          required: false
+
+    # --- runtime knobs --------------------------------------------------------
+    - name: REVEAL_SECRETS
+      valueFrom:
+        configForm:
+          displayName: Allow ?reveal=true on /info (test harness only)
+          type: boolean
+          required: false

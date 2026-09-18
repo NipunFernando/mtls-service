@@ -1,0 +1,83 @@
+# Choreo component descriptor for the companion mTLS client.
+#
+# Deploy as a Manual/Scheduled Task with CLIENT_MODE=once (it calls the server,
+# prints /info and exits; a failed mTLS handshake exits non-zero and the run is
+# marked failed), or as a Service with CLIENT_MODE=gate, where the health port
+# below only starts answering once the mTLS call has succeeded -- which turns a
+# broken mTLS setup into a failed deployment.
+schemaVersion: 1.2
+
+# Only needed in gate mode, where the probe target must be reachable.
+# Comment the whole block out when deploying as a task.
+endpoints:
+  - name: client-health
+    displayName: Client Health
+    service:
+      basePath: /
+      port: 8080
+    type: REST
+    networkVisibilities:
+      - Project
+
+configurations:
+  env:
+    - name: SERVER_HOST
+      valueFrom:
+        configForm:
+          displayName: Server Host (Choreo service DNS name)
+          type: string
+          required: true
+    - name: SERVER_PORT
+      valueFrom:
+        configForm:
+          displayName: Server Port
+          type: number
+          required: false
+    - name: SERVER_NAME
+      valueFrom:
+        configForm:
+          displayName: Server Certificate Name to Verify (SNI)
+          type: string
+          required: false
+    - name: CLIENT_CERT
+      valueFrom:
+        configForm:
+          displayName: Client Certificate Mount Path
+          type: string
+          required: false
+    - name: CLIENT_KEY
+      valueFrom:
+        configForm:
+          displayName: Client Private Key Mount Path
+          type: string
+          required: false
+    - name: SERVER_CA
+      valueFrom:
+        configForm:
+          displayName: Server CA Mount Path
+          type: string
+          required: false
+    - name: CLIENT_MODE
+      valueFrom:
+        configForm:
+          displayName: Mode (once | gate)
+          type: string
+          required: false
+    - name: CHECK_HOSTNAME
+      valueFrom:
+        configForm:
+          displayName: Verify Server Hostname
+          type: boolean
+          required: false
+    - name: RETRY_ATTEMPTS
+      valueFrom:
+        configForm:
+          displayName: Retry Attempts
+          type: number
+          required: false
+    - name: LOG_LEVEL
+      valueFrom:
+        configForm:
+          displayName: Log Level
+          type: string
+          required: false

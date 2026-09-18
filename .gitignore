@@ -1,0 +1,12 @@
+# Test certificate material - regenerate with scripts/gen-certs.sh.
+# Never commit private keys, not even demo ones.
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+*.srl
+
+__pycache__/
+*.pyc
+.venv/
