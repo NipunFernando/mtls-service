@@ -34,6 +34,11 @@ LOG = logging.getLogger("mtls-server")
 
 HANDSHAKE_TIMEOUT = 10.0
 
+# A TCP health probe connects and closes without sending a ClientHello, which
+# surfaces as an EOF mid-handshake.  That is not a rejected client, so it is
+# logged at debug level -- otherwise probe noise every few seconds buries the
+# rejections that actually matter.
+
 # Flipped once the TLS listener is bound and serving.  /healthz answers 200
 # only after that, so a probe can never see a half-initialised service.
 READY = threading.Event()
@@ -80,7 +85,13 @@ class MTLSHTTPServer(ThreadingHTTPServer):
         try:
             tls_sock = self.ssl_context.wrap_socket(sock, server_side=True)
         except (ssl.SSLError, ssl.SSLCertVerificationError) as exc:
-            LOG.warning("TLS handshake rejected from %s: %s", addr[0], exc)
+            if getattr(exc, "reason", None) == "UNEXPECTED_EOF_WHILE_READING":
+                LOG.debug(
+                    "connection from %s closed before the handshake started "
+                    "(health probe or port scan): %s", addr[0], exc,
+                )
+            else:
+                LOG.warning("TLS handshake rejected from %s: %s", addr[0], exc)
             sock.close()
             # socketserver treats OSError from get_request() as "nothing to do".
             raise OSError("handshake failed") from exc
