@@ -21,10 +21,20 @@ set -euo pipefail
 
 OUT="${1:-certs}"
 DAYS="${DAYS:-825}"
-# Every name the server certificate should be valid for.  Add the Choreo
-# service DNS name here once you know it, or set SERVER_SAN before running.
+# Every name the server certificate should be valid for.  Override SERVER_SAN to
+# add more, and remember that anything dialling a name not listed here will
+# reject the connection before a byte of data moves.
+#
+# The Choreo service names matter for callers that cannot be told to verify a
+# different name than the one they dial.  The companion client can -- it dials
+# SERVER_HOST and verifies SERVER_NAME -- but an API gateway in front of this
+# service generally cannot, so it needs the real service name in here.  That
+# name carries a Choreo-generated hash and changes if the component is
+# recreated, in which case these certificates have to be reissued.
+SERVER_SVC="${SERVER_SVC:-server-2410065129}"
+SERVER_NS="${SERVER_NS:-dp-development-mtlsservice-10730-3159077871}"
 SERVER_CN="${SERVER_CN:-mtls-demo-server}"
-SERVER_SAN="${SERVER_SAN:-DNS:localhost,DNS:mtls-demo-server,DNS:mtls-service,IP:127.0.0.1}"
+SERVER_SAN="${SERVER_SAN:-DNS:localhost,DNS:mtls-demo-server,DNS:mtls-service,DNS:${SERVER_SVC},DNS:${SERVER_SVC}.${SERVER_NS},DNS:${SERVER_SVC}.${SERVER_NS}.svc,DNS:${SERVER_SVC}.${SERVER_NS}.svc.cluster.local,IP:127.0.0.1}"
 CLIENT_CN="${CLIENT_CN:-mtls-demo-client}"
 SUBJ_BASE="${SUBJ_BASE:-/C=LK/O=WSO2/OU=Choreo mTLS Demo}"
 
