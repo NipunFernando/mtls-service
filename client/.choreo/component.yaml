@@ -17,8 +17,14 @@ schemaVersion: 1.2
 # /diagnostics is what makes the loop testable from Choreo's Test Console.  The
 # server cannot be tested from there (it is a TCP passthrough endpoint and the
 # console cannot present a client certificate), so the client stands in as the
-# way in.  Set the visibility to Public if the console cannot reach a
-# Project-visibility endpoint in your setup.
+# way in.
+#
+# Public so the Test Console can reach it.  That is acceptable here only because
+# this is a test rig holding throwaway certificates and fake configuration:
+# /diagnostics echoes the server's config back, and while secrets are masked the
+# masking still discloses their length and last four characters.  Keep
+# REVEAL_SECRETS false on the server -- with it on, a public caller could read
+# the secrets outright.
 endpoints:
   - name: client-api
     displayName: Client API
@@ -27,7 +33,7 @@ endpoints:
       port: 8080
     type: REST
     networkVisibilities:
-      - Project
+      - Public
 
 configurations:
   env:
