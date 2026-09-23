@@ -25,6 +25,7 @@ import time
 from datetime import datetime, timezone
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 LOG = logging.getLogger("mtls-client")
 
@@ -182,24 +183,97 @@ def attempt_with_retries(cfg: ClientConfig, ctx: ssl.SSLContext) -> dict:
 
 
 class HealthHandler(BaseHTTPRequestHandler):
+    """The client's own small REST surface.
+
+    `/healthz` is the gate: it answers 200 only once the mTLS call has been
+    proven, so a broken setup fails the deployment rather than running degraded.
+
+    `/diagnostics` re-runs that call on demand and returns what the server saw,
+    which is what makes the whole loop testable from Choreo's Test Console.  The
+    server itself cannot be tested from there -- it is a TCP passthrough
+    endpoint and the console cannot present a client certificate -- but the
+    client is an ordinary REST service, so it can act as the way in.
+    """
+
     protocol_version = "HTTP/1.1"
 
-    def do_GET(self):  # noqa: N802
-        ready = READY.is_set()
-        body = json.dumps(
-            {
-                "status": "ok" if ready else "initialising",
-                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            }
-        ).encode()
-        self.send_response(200 if ready else 503)
+    # Set once in main(); the handler needs them to re-run the call per request.
+    config: "ClientConfig | None" = None
+    ssl_context: ssl.SSLContext | None = None
+
+    def _send(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload, indent=2).encode()
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def _healthz(self) -> None:
+        ready = READY.is_set()
+        self._send(
+            200 if ready else 503,
+            {
+                "status": "ok" if ready else "initialising",
+                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            },
+        )
+
+    def _diagnostics(self) -> None:
+        """Call the server over mTLS now and report both sides of the exchange."""
+        started = datetime.now(timezone.utc)
+        cfg, ctx = HealthHandler.config, HealthHandler.ssl_context
+        if cfg is None or ctx is None:
+            self._send(503, {"ok": False, "error": "client is still starting up"})
+            return
+
+        caller = {
+            "route": "direct-mtls",
+            "target": f"https://{cfg.host}:{cfg.port}{cfg.path}",
+            "verified_as": cfg.server_name,
+            "client_certificate": cfg.client_cert,
+        }
+        try:
+            payload = call_info(cfg, ctx)
+        except (ssl.SSLError, OSError, RuntimeError) as exc:
+            # Worth 200-ing this: the Test Console shows the body either way, and
+            # the interesting cases here are the failures.
+            LOG.error("diagnostics call failed: %s", exc)
+            self._send(
+                502,
+                {
+                    "ok": False,
+                    "caller": caller,
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                    "timestamp": started.isoformat(timespec="seconds"),
+                },
+            )
+            return
+
+        self._send(
+            200,
+            {
+                "ok": True,
+                "caller": caller,
+                "server": payload,
+                "elapsed_ms": int(
+                    (datetime.now(timezone.utc) - started).total_seconds() * 1000
+                ),
+                "timestamp": started.isoformat(timespec="seconds"),
+            },
+        )
+
+    def do_GET(self):  # noqa: N802
+        route = urlparse(self.path).path.rstrip("/") or "/"
+        if route in ("/", "/healthz"):
+            self._healthz()
+        elif route == "/diagnostics":
+            self._diagnostics()
+        else:
+            self._send(404, {"error": f"no such route: {route}", "routes": ["/healthz", "/diagnostics"]})
+
     def log_message(self, fmt, *args):
-        LOG.debug("health %s", fmt % args)
+        LOG.debug("http %s", fmt % args)
 
 
 def main() -> int:
@@ -237,9 +311,12 @@ def main() -> int:
     if cfg.mode == "gate":
         READY.set()
         LOG.info(
-            "mode=gate: staying up and serving /healthz on :%d now that mTLS is proven",
+            "mode=gate: staying up on :%d now that mTLS is proven "
+            "(GET /healthz, GET /diagnostics)",
             cfg.health_port,
         )
+        HealthHandler.config = cfg
+        HealthHandler.ssl_context = ctx
         server = ThreadingHTTPServer(("0.0.0.0", cfg.health_port), HealthHandler)
         server.daemon_threads = True
         try:
