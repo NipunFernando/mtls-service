@@ -1,0 +1,71 @@
+openapi: 3.0.3
+info:
+  title: mTLS Demo Client
+  version: "1.0.0"
+  description: >
+    Drives the mTLS loop on demand.  The server cannot be reached from the Test
+    Console directly -- it is a TCP passthrough endpoint and the console cannot
+    present a client certificate -- so this client stands in as the way in.
+paths:
+  /healthz:
+    get:
+      summary: Liveness gate
+      description: >
+        200 only once the mTLS call has succeeded at least once, so a broken
+        setup fails the deployment rather than running degraded.
+      responses:
+        "200":
+          description: mTLS has been proven
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+        "503":
+          description: Still initialising
+  /diagnostics:
+    get:
+      summary: Run the mTLS call now and report both sides
+      description: >
+        Calls the server over mTLS and returns what the client dialled together
+        with the server's own view, including the client certificate's subject,
+        issuer and fingerprint as the server observed them.
+      responses:
+        "200":
+          description: The call succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  caller:
+                    type: object
+                    properties:
+                      route: { type: string, example: direct-mtls }
+                      target: { type: string }
+                      verified_as: { type: string }
+                      client_certificate: { type: string }
+                  server:
+                    type: object
+                    description: The server's /info response.
+                  elapsed_ms: { type: integer }
+                  timestamp: { type: string, format: date-time }
+        "502":
+          description: The mTLS call failed; the error is in the body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: false }
+                  caller: { type: object }
+                  error:
+                    type: object
+                    properties:
+                      type: { type: string }
+                      message: { type: string }
+        "503":
+          description: The client is still starting up

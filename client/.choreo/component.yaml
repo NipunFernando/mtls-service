@@ -32,6 +32,10 @@ endpoints:
       basePath: /
       port: 8080
     type: REST
+    # Without a schema the Test Console has no route list and falls back to "/",
+    # which answers with the health body and makes it look as though
+    # /diagnostics is not there.
+    schemaFilePath: openapi.yaml
     networkVisibilities:
       - Public
 
